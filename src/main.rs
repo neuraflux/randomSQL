@@ -1541,7 +1541,7 @@ fn display_help(display_all: bool) {
     if display_all {
         println!(
             "
-                        ===== COMMANDS AND DEFINITIONS=====
+                        ===== COMMANDS AND DEFINITIONS =====
 
             Commands Followed By [] Are Required Args Unless Specifically Stated In This Menu
 
