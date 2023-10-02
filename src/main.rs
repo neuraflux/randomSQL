@@ -1778,5 +1778,4 @@ mod tests {
         let (pair_changed, _new_pair) = super::check_pair(&new_pair, &previous_pairs, &table_attributes, &uq_attributes, count);
         assert_eq!(pair_changed, false);
     }
-
 }
