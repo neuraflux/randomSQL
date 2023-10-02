@@ -302,14 +302,21 @@ fn get_random_data(
             name.replace("'", "")
         }
         password_type if password_type.starts_with("PASSWORD") => Password(std::ops::Range {
-            start: (optional_data_size.unwrap_or(8) as usize),
-            end: 30,
+            start: 8,
+            end: (optional_data_size.unwrap_or(30) as usize),
         })
         .fake(),
         username_type if username_type.starts_with("USERNAME") => {
             let first_name = FirstName(EN).fake::<String>();
             let last_name = LastName(EN).fake::<String>();
-            let username = format!("{}{}", first_name, last_name);
+            let mut username = format!("{}{}", first_name, last_name);
+            //Check if optional data size is specified, if so, truncate username to that size if it is larger
+            if let Some(data_size) = optional_data_size {
+                if username.len() > data_size as usize {
+                    username =  username[..data_size as usize].to_string();
+                }
+            }
+
             username.replace("'", "")
         }
         "INTEGER" => Faker.fake::<u16>().to_string(),
@@ -365,7 +372,7 @@ fn get_random_data(
             ) {
                 (Some(name), _, _) => name.replace(" ", ""),
                 (_, Some(full_name), _) => full_name.replace(" ", ""),
-                (_, _, Some(full_name_underscore)) => full_name_underscore.replace("_", ""),
+                (_, _, Some(full_name_underscore)) => full_name_underscore.replace(" ", ""),
                 _ => {
                     let name = Name(EN).fake::<String>();
                     name.replace("'", "").to_string();
@@ -1541,7 +1548,7 @@ fn display_help(display_all: bool) {
     if display_all {
         println!(
             "
-                        ===== COMMANDS AND DEFINITIONS =====
+                        ===== COMMANDS AND DEFINITIONS=====
 
             Commands Followed By [] Are Required Args Unless Specifically Stated In This Menu
 
@@ -1599,4 +1606,177 @@ fn display_help(display_all: bool) {
             "
         );
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_attribute_datatype() {
+        /*
+        Test Valid and Invalid Data Types
+        Assert Valid Data Types Return True
+        Assert Invalid Data Types Return False
+        */
+
+        let valid_datatypes = vec!["INTEGER", "VARCHAR(30)", "PASSWORD(30)"];
+        let invalid_datatypes = vec!["INVALID!", "VAFCHAR", "EMMAIL"];
+        for valid in valid_datatypes {
+            assert_eq!(super::check_data_type(valid), true);
+        }
+        for invalid in invalid_datatypes {
+            assert_eq!(super::check_data_type(invalid), false);
+        }
+    }
+
+    #[test]
+    fn test_key_definitions() {
+        /*
+        Test Valid and Invalid Key Definitions
+        For Valid, Test All Possible Key Definitions
+        For Invalid, Test Spelling Errors and Incorrect Ordering
+        */
+        let valid_key_definitions = vec!["PK", "AK", "FK", "PK/FK", "AK/FK"];
+        let invalid_key_definitions = vec!["KP", "KA", "KF", "PK/AK", "AK/PK", "FK/PK", "FK/AK", "PK/AK/FK"];
+        for valid in valid_key_definitions {
+            assert_eq!(super::check_key_definition(valid), true);
+        }
+        for invalid in invalid_key_definitions {
+            assert_eq!(super::check_key_definition(invalid), false);
+        }
+    }
+
+    #[test]
+    fn test_random_data_generation() {
+        /*
+        Test Data Generation With Types With Given Size
+        PASSWORD(20), USERNAME(10), MONEY(7), VARCHAR(30)
+        Assert Length of Return > 0 and <= Given Size
+        */
+        let statement_data: HashMap<String, String> = HashMap::new(); //Not Needed For This Test (Only Used For Email Generation)
+        
+        let password = super::get_random_data("PASSWORD(20)", Some(20), &statement_data);
+        assert_eq!(password.len() > 0 && password.len() <= 20, true);
+
+        let username = super::get_random_data("USERNAME(10)", Some(10), &statement_data);
+        assert_eq!(username.len() > 0 && username.len() <= 10, true);
+
+        let money = super::get_random_data("MONEY(7)", Some(7), &statement_data);
+        //Since money is returned as String and .{}{} (Used for cents) takes up 3 chars. The length of the return should be 7 + 3 = 10
+        assert_eq!(money.len() > 0 && money.len() <= 10, true);
+
+        let varchar = super::get_random_data("VARCHAR(30)", Some(30), &statement_data);
+        assert_eq!(varchar.len() > 0 && varchar.len() <= 30, true);
+    }
+
+    #[test]
+    fn test_email_generation_with_names_in_statement_data() {
+        /*
+        Test Email Generation With Names In Statement Data
+        Assert Email Contains Name
+        This Tests The 3 Given Key Possiblities (name, full name, full_name)
+        */
+        let mut statement_data: HashMap<String, String> = HashMap::new();
+        statement_data.insert("name".to_string(), "Bob Johnson".to_string());
+        let email = super::get_random_data("EMAIL", None, &statement_data);
+        assert_eq!(email.contains("BobJohnson"), true);
+
+        //Reset HashMap and generate new name, then try again
+        statement_data = HashMap::new();
+        statement_data.insert("full name".to_string(), "John Smith".to_string());
+        let email = super::get_random_data("EMAIL", None, &statement_data);
+        assert_eq!(email.contains("JohnSmith"), true);
+
+        //Reset HashMap and generate new name, then try again
+        statement_data = HashMap::new();
+        statement_data.insert("full_name".to_string(), "Jane Doe".to_string());
+        let email = super::get_random_data("EMAIL", None, &statement_data);
+        assert_eq!(email.contains("JaneDoe"), true);
+    }
+
+    #[test]
+    fn test_set_variable_size() {
+        /*
+        Pass datatypes of format DATATYPE(n)
+        Assert n is returned
+        */
+        let data_types = vec!["VARCHAR(30)", "PASSWORD(20)", "USERNAME(10)", "MONEY(7)"];
+
+        //Loop through each data type and assert the size is returned
+        for data_type in data_types {
+            let size = super::set_variable_size(data_type);
+            assert_eq!(size.is_some(), true);
+            assert_eq!(size.unwrap() > 0, true);
+        }
+    }
+
+    #[test]
+    fn test_create_insert_statement() {
+        /*
+        Create vars for function and test returned insert statement
+        */
+        let target_insert_statement = "INSERT INTO profile VALUES (1, 'Bob Johnson', 'BobJohnson@pitt.edu');";
+        let table_name = "profile";
+        let table_attributes: Vec<String> = vec!["userID".to_string(), "name".to_string(), "email".to_string()];
+        let mut statement_data: HashMap<String, String> = HashMap::new();
+        statement_data.insert("userID".to_string(), "1".to_string());
+        statement_data.insert("name".to_string(), "Bob Johnson".to_string());
+        statement_data.insert("email".to_string(), "BobJohnson@pitt.edu".to_string());
+        
+        let generated_insert = super::create_insert_statement(table_name, &table_attributes, &statement_data);
+        assert_eq!(generated_insert, target_insert_statement);
+    }
+
+    #[test]
+    fn test_check_pair_with_unique_pair_passed() {
+        /*
+        Test check_pair with a unique pair
+        pair_changed should return false
+        Generate values for 
+                generated_pair_vector: &Vec<String>,
+                previous_pairs: &Vec<Vec<String>>,
+                table_attributes: &Vec<String>,
+                uq_attributes: &HashMap<String, Vec<String>>,
+                count: usize,
+        */
+        let generated_pair_vector: Vec<String> = vec!["1".to_string(), "Bob Johnson".to_string()];
+        let previous_pairs: Vec<Vec<String>> = vec![vec!["2".to_string(), "John Smith".to_string()], vec!["3".to_string(), "Jane Doe".to_string()], vec!["4".to_string(), "Steven Even".to_string()]];
+        let table_attributes: Vec<String> = vec!["userID".to_string(), "name".to_string()];
+        let mut uq_attributes: HashMap<String, Vec<String>> = HashMap::new();
+        uq_attributes.insert("userID".to_string(), vec!["1".to_string(), "2".to_string(), "3".to_string(), "4".to_string()]);
+        uq_attributes.insert("name".to_string(), vec!["Bob Johnson".to_string(), "John Smith".to_string(), "Jane Doe".to_string(), "Steven Even".to_string()]);
+        let count: usize = 0;
+        let (pair_changed, _new_pair) = super::check_pair(&generated_pair_vector, &previous_pairs, &table_attributes, &uq_attributes, count);
+        assert_eq!(pair_changed, false);
+    }
+
+    #[test]
+    fn test_check_pair_with_prev_pair_passed() {
+        /*
+        Test check_pair with a prev generated pair
+        pair_changed should return true
+        Then check_pair with new values should return false
+        Generate values for 
+                generated_pair_vector: &Vec<String>,
+                previous_pairs: &Vec<Vec<String>>,
+                table_attributes: &Vec<String>,
+                uq_attributes: &HashMap<String, Vec<String>>,
+                count: usize,
+        */
+        let generated_pair_vector: Vec<String> = vec!["1".to_string(), "Bob Johnson".to_string()];
+        let previous_pairs: Vec<Vec<String>> = vec![vec!["2".to_string(), "John Smith".to_string()], vec!["1".to_string(), "Bob Johnson".to_string()], vec!["4".to_string(), "Steven Even".to_string()]];
+        let table_attributes: Vec<String> = vec!["userID".to_string(), "name".to_string()];
+        let mut uq_attributes: HashMap<String, Vec<String>> = HashMap::new();
+
+        //Add extra padding to both attributes to allow function to generate new pair. Run check pair twice
+        uq_attributes.insert("userID".to_string(), vec!["1".to_string(), "2".to_string(), "3".to_string(), "4".to_string(), "5".to_string(), "6".to_string()]);
+        uq_attributes.insert("name".to_string(), vec!["Bob Johnson".to_string(), "John Smith".to_string(), "Jane Doe".to_string(), "Steven Even".to_string(), "Zoe Tae".to_string(), "Jenny Doe".to_string()]);
+        let count: usize = 0;
+        let (pair_changed, new_pair) = super::check_pair(&generated_pair_vector, &previous_pairs, &table_attributes, &uq_attributes, count);
+        assert_eq!(pair_changed, true);
+        let (pair_changed, _new_pair) = super::check_pair(&new_pair, &previous_pairs, &table_attributes, &uq_attributes, count);
+        assert_eq!(pair_changed, false);
+    }
+
 }
