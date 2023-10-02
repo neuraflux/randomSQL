@@ -22,10 +22,12 @@ table 'friend' (
 
 # Translating Schema to Add Command in RandomSQL
 For 'profile' We will generate 150 profiles
-add 150 profile (PK userID INTEGER, name NAME, AK email EMAIL, password PASSWORD(30), dateOfBirth DATE)
+
+'add 150 profile (PK userID INTEGER, name NAME, AK email EMAIL, password PASSWORD(30), dateOfBirth DATE)'
 
 For 'friend' We will generate 240 friendships
-add 240 friend (PK/FK friend1 INTEGER profile(userID), PK/FK friend2 INTEGER profile(userID), friendDate DATE)
+
+'add 240 friend (PK/FK friend1 INTEGER profile(userID), PK/FK friend2 INTEGER profile(userID), friendDate DATE)'
 
 This will generate 150 unique profiles and 240 unique friendships using data (friend1 and friend2) created from the profile command
 (i.e All friend1 and friend2 userIDs will be userIDs created during the creation of the 150 profile statements)
