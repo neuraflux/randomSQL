@@ -1608,6 +1608,11 @@ fn display_help(display_all: bool) {
     }
 }
 
+/*
+    *
+    * Unit Tests
+    *
+*/
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
