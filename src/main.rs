@@ -30,7 +30,8 @@ fn check_data_type(attribute_type: &str) -> bool {
            - `bool`: True if valid, false if invalid
 
     */
-
+    
+    //Recreate valid types variable, but put all types in alphabetical order
     let valid_types = [
         "BIGINT",
         "BIT",
@@ -40,14 +41,14 @@ fn check_data_type(attribute_type: &str) -> bool {
         "CHAR",
         "CIDR",
         "CIRCLE",
-        "CITY_US",
         "CITY_SHORT",
-        "COUNTRY",
+        "CITY_US",
         "COMPANYNAME",
-        "EMAIL",
+        "COUNTRY",
         "DATE",
-        "DOUBLE PRECISION",
         "DECIMAL",
+        "DOUBLE PRECISION",
+        "EMAIL",
         "ENUM",
         "FLOAT4",
         "FLOAT8",
@@ -55,7 +56,6 @@ fn check_data_type(attribute_type: &str) -> bool {
         "INDUSTRY",
         "INET",
         "INTEGER",
-        "NAME",
         "INTERVAL",
         "JSON",
         "JSONB",
@@ -63,6 +63,7 @@ fn check_data_type(attribute_type: &str) -> bool {
         "LSEG",
         "MACADDR",
         "MONEY",
+        "NAME",
         "NUMERIC",
         "PASSWORD",
         "PATH",
@@ -72,13 +73,13 @@ fn check_data_type(attribute_type: &str) -> bool {
         "POLYGON",
         "PROFESSION",
         "REAL",
-        "SMALLINT",
         "SERIAL",
+        "SMALLINT",
         "SSN",
         "STATE",
         "STATE_US",
-        "STREET_NAME_US",
         "STREET_ADDRESS",
+        "STREET_NAME_US",
         "TEXT",
         "TIME",
         "TIMESTAMP",
@@ -87,8 +88,8 @@ fn check_data_type(attribute_type: &str) -> bool {
         "TXID_SNAPSHOT",
         "USERNAME",
         "UUID",
-        "XML",
         "VARCHAR",
+        "XML",
         "ZIP_US",
     ];
 
