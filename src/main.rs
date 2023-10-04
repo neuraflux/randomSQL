@@ -47,6 +47,7 @@ fn check_data_type(attribute_type: &str) -> bool {
         "EMAIL",
         "DATE",
         "DOUBLE PRECISION",
+        "DECIMAL",
         "ENUM",
         "FLOAT4",
         "FLOAT8",
@@ -261,7 +262,7 @@ fn create_insert_statement(
 
 fn get_random_data(
     attribute_type: &str,
-    optional_data_size: Option<u16>,
+    optional_data_size: Option<Vec<u16>>,
     statement_data: &HashMap<String, String>,
 ) -> String {
     /*
@@ -281,15 +282,47 @@ fn get_random_data(
     */
     match attribute_type {
         char_type if char_type.starts_with("CHAR") || char_type.starts_with("VARCHAR") => {
-            let char_size = optional_data_size.unwrap_or_else(|| thread_rng().gen_range(8..30));
+            //Attempt to unwrap and get vec[0] of optional datasize, if none, set random value
+            let char_size = optional_data_size
+                .unwrap_or_else(|| vec![thread_rng().gen_range(3..12)])
+                .get(0)
+                .unwrap()
+                .to_owned();
             Faker
                 .fake::<String>()
                 .chars()
                 .take(char_size as usize)
                 .collect::<String>()
         }
+        decimal_type if decimal_type.starts_with("DECIMAL") => {
+            //Attempt to unwrap and get vec[0] and vec[1] of optional datasize
+            //Vec[0] is the number of digits before the decimal point
+            //Vec[1] is the number of digits after the decimal point
+            //If none, set random values of each
+            let unwrapped_decimal = optional_data_size.unwrap_or_else(|| {
+                vec![
+                    thread_rng().gen_range(3..12),
+                    thread_rng().gen_range(3..12),
+                ]
+            });
+            let digits_before_decimal = unwrapped_decimal.get(0).unwrap().to_owned();
+            let digits_after_decimal = unwrapped_decimal.get(1).unwrap().to_owned();
+            //Create decimal value from digits_before_decimal and digits_after_decimal
+            let decimal_value = format!(
+                "{}.{}",
+                thread_rng().gen_range(0..10_u64.pow(digits_before_decimal as u32)),
+                thread_rng().gen_range(0..10_u64.pow(digits_after_decimal as u32)),
+            );
+            decimal_value
+        }
         money_type if money_type.starts_with("MONEY") => {
-            let dollar_size = optional_data_size.unwrap_or_else(|| thread_rng().gen_range(3..12));
+            //Attempt to unwrap and get vec[0] of optional datasize, if none, set random value
+            let dollar_size = optional_data_size
+                .unwrap_or_else(|| vec![thread_rng().gen_range(3..12)])
+                .get(0)
+                .unwrap()
+                .to_owned();
+            
             // Generate a dollar amount between 3 figures and either dollar size or 12 figures
             let dollar_amount = thread_rng().gen_range(0..10i32.pow(dollar_size as u32));
             let cents_amount = thread_rng().gen_range(0..100);
@@ -303,24 +336,27 @@ fn get_random_data(
         }
         password_type if password_type.starts_with("PASSWORD") => Password(std::ops::Range {
             start: 8,
-            end: (optional_data_size.unwrap_or(30) as usize),
+            end: (optional_data_size
+                .unwrap_or_else(|| vec![thread_rng().gen_range(8..12)])
+                .get(0)
+                .unwrap()
+                .to_owned() as usize), //Attempt to unwrap and get vec[0] of optional datasize, if none, set random value
         })
         .fake(),
         username_type if username_type.starts_with("USERNAME") => {
             let first_name = FirstName(EN).fake::<String>();
             let last_name = LastName(EN).fake::<String>();
             let mut username = format!("{}{}", first_name, last_name);
-            //Check if optional data size is specified, if so, truncate username to that size if it is larger
-            if let Some(data_size) = optional_data_size {
-                if username.len() > data_size as usize {
-                    username =  username[..data_size as usize].to_string();
+            //Check if optional data size is specified in vec[0], if so, truncate username to that size if it is larger
+            if let Some(size) = optional_data_size {
+                if username.len() > size[0] as usize {
+                    username.truncate(size[0] as usize);
                 }
             }
 
             username.replace("'", "")
         }
         "INTEGER" => Faker.fake::<u16>().to_string(),
-        "FLOAT" => Faker.fake::<f32>().to_string(),
         "BOOLEAN" => Faker.fake::<bool>().to_string(),
         "DATE" => {
             let year = thread_rng().gen_range(1900..2021);
@@ -583,12 +619,12 @@ fn generate_mock_data(
                         let attribute_name = attribute_definition[0].to_string();
                         let attribute_type = attribute_definition[1].to_uppercase().to_string();
 
-                        let optional_variable_size: Option<u16> =
+                        let optional_variable_size: Option<Vec<u16>> =
                             set_variable_size(&attribute_type);
 
                         let generated_data: String = get_random_data(
                             &attribute_type,
-                            optional_variable_size,
+                            optional_variable_size.clone(),
                             &statement_data,
                         );
 
@@ -606,12 +642,12 @@ fn generate_mock_data(
                         let attribute_name = attribute_definition[1].to_string();
                         let attribute_type = attribute_definition[2].to_uppercase().to_string();
 
-                        let optional_variable_size: Option<u16> =
+                        let optional_variable_size: Option<Vec<u16>> =
                             set_variable_size(&attribute_type);
 
                         let mut generated_data: String = get_random_data(
                             &attribute_type,
-                            optional_variable_size,
+                            optional_variable_size.clone(),
                             &statement_data,
                         );
 
@@ -621,7 +657,7 @@ fn generate_mock_data(
                             {
                                 generated_data = get_random_data(
                                     &attribute_type,
-                                    optional_variable_size,
+                                    optional_variable_size.clone(),
                                     &statement_data,
                                 );
                             }
@@ -827,7 +863,9 @@ fn generate_mock_data(
     }
 }
 
-fn set_variable_size(attr_type: &str) -> Option<u16> {
+//Mark as unusable so that the function can stay but is not called by the program
+#[deprecated(note = "This function is old and has since been rewritten. It is kept here for reference purposes")]
+fn _set_variable_size(attr_type: &str) -> Option<u16> {
     /*
     Returns Either variable_size or None
 
@@ -860,6 +898,62 @@ fn set_variable_size(attr_type: &str) -> Option<u16> {
     };
     some_returned_value
 }
+
+fn set_variable_size(attr_type: &str) -> Option<Vec<u16>> {
+    /*
+        Improved set_variable_size function
+        Still performs the same functionality as the old function
+        However this function is able to account for decimal values
+        i.e MONEY(10,2) -> 10 is the total number of digits, 2 is the number of digits after the decimal point
+        i.e DECIMAL(8,4) -> 8 is the total number of digits, 4 is the number of digits after the decimal point
+
+        :parameters:
+            - `attr_type`: The type of the attribute
+
+        :returns:
+            - `Option<Vec<u16>>`: The variable size for the attribute returned as a vec
+            -  Vec[0] -> Original variable size similar to old function, or number of digits before decimal point
+            -  Vec[1] -> Number of digits after decimal point (usually the only reason for index 1 to exist)
+            -  None -> No variable size for the attribute
+    */
+    let some_returned_value: Option<Vec<u16>> = match &attr_type {
+        //Check if s.contains("VARIABLE") [in cases of VARIABLE(n)] and s is not "VARIABLE"
+        s if s.contains("VARCHAR") && !(*s).eq("VARCHAR") => {
+            let variable_size_str = &attr_type[7..];
+            let variable_size_str: String =
+                variable_size_str[1..variable_size_str.len() - 1].to_string();
+            Some(vec![variable_size_str.parse().unwrap(), 0])
+        }
+        s if s.contains("CHAR") && !(*s).eq("CHAR") => {
+            let variable_size_str = &attr_type[4..];
+            let variable_size_str = &variable_size_str[1..variable_size_str.len() - 1];
+            Some(vec![variable_size_str.parse().unwrap(), 0])
+        }
+        s if (s.contains("PASSWORD") && !(*s).eq("PASSWORD")) || (s.contains("USERNAME") && !(*s).eq("USERNAME")) => {
+            let variable_size_str = &attr_type[8..];
+            let variable_size_str = &variable_size_str[1..variable_size_str.len() - 1];
+            Some(vec![variable_size_str.parse().unwrap(), 0])
+        }
+        s if s.contains("MONEY") && !(*s).eq("MONEY") => {
+            let variable_size_str = &attr_type[5..];
+            let variable_size_str = &variable_size_str[1..variable_size_str.len() - 1];
+            Some(vec![variable_size_str.parse().unwrap(), 0])
+        }
+        s if s.contains("DECIMAL") && !(*s).eq("DECIMAL") => {
+            let variable_size_str = &attr_type[7..];
+            let variable_size_str = &variable_size_str[1..variable_size_str.len() - 1];
+            let variable_size_str: Vec<&str> = variable_size_str.split(",").collect();
+            Some(vec![
+                variable_size_str[0].trim().parse().unwrap(),
+                variable_size_str[1].trim().parse().unwrap(),
+            ])
+        }
+        _ => None,
+    };
+    some_returned_value
+}
+
+
 
 fn write_to_file(generated_statement: String, path: &String) -> io::Result<()> {
     /*
@@ -1165,7 +1259,7 @@ fn main() {
                         }
                     }
                     "modify" | "mod" => {
-                        let table_to_modify = tuples
+                        let _table_to_modify = tuples
                             .iter()
                             .find(|elem| {
                                 elem.split_whitespace().nth(1) == Some(sql_command_list[1])
@@ -1608,14 +1702,11 @@ fn display_help(display_all: bool) {
     }
 }
 
-/*
-    *
-    * Unit Tests
-    *
-*/
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::{collections::HashMap, io::{stdout, Write}};
+
+    use rand::Rng;
 
     #[test]
     fn test_attribute_datatype() {
@@ -1661,17 +1752,17 @@ mod tests {
         */
         let statement_data: HashMap<String, String> = HashMap::new(); //Not Needed For This Test (Only Used For Email Generation)
         
-        let password = super::get_random_data("PASSWORD(20)", Some(20), &statement_data);
+        let password = super::get_random_data("PASSWORD(20)", Some(vec![20,0]), &statement_data);
         assert_eq!(password.len() > 0 && password.len() <= 20, true);
 
-        let username = super::get_random_data("USERNAME(10)", Some(10), &statement_data);
+        let username = super::get_random_data("USERNAME(10)", Some(vec![10,0]), &statement_data);
         assert_eq!(username.len() > 0 && username.len() <= 10, true);
 
-        let money = super::get_random_data("MONEY(7)", Some(7), &statement_data);
+        let money = super::get_random_data("MONEY(7)", Some(vec![7,0]), &statement_data);
         //Since money is returned as String and .{}{} (Used for cents) takes up 3 chars. The length of the return should be 7 + 3 = 10
         assert_eq!(money.len() > 0 && money.len() <= 10, true);
 
-        let varchar = super::get_random_data("VARCHAR(30)", Some(30), &statement_data);
+        let varchar = super::get_random_data("VARCHAR(30)", Some(vec![30,0]), &statement_data);
         assert_eq!(varchar.len() > 0 && varchar.len() <= 30, true);
     }
 
@@ -1706,13 +1797,12 @@ mod tests {
         Pass datatypes of format DATATYPE(n)
         Assert n is returned
         */
-        let data_types = vec!["VARCHAR(30)", "PASSWORD(20)", "USERNAME(10)", "MONEY(7)"];
+        let data_types = vec!["VARCHAR(30)", "PASSWORD(20)", "USERNAME(10)", "MONEY(7)", "DECIMAL(10,2)"];
+        let returned_types = vec![vec![30, 0], vec![20, 0], vec![10, 0], vec![7, 0], vec![10, 2]];
 
-        //Loop through each data type and assert the size is returned
-        for data_type in data_types {
-            let size = super::set_variable_size(data_type);
-            assert_eq!(size.is_some(), true);
-            assert_eq!(size.unwrap() > 0, true);
+        for (index, data_type) in data_types.iter().enumerate() {
+            assert_eq!(super::set_variable_size(data_type).is_some(), true);
+            assert_eq!(super::set_variable_size(data_type).unwrap(), returned_types[index]);
         }
     }
 
@@ -1783,4 +1873,41 @@ mod tests {
         let (pair_changed, _new_pair) = super::check_pair(&new_pair, &previous_pairs, &table_attributes, &uq_attributes, count);
         assert_eq!(pair_changed, false);
     }
+
+    #[test]
+    fn test_cast_generated_decimal_to_float() {
+        /*
+        Using DECIMAL(15, 10) as datatype
+        Pass it through check_data_type to confirm exists
+        If true pass it through set_variable_size to get size
+        assert it returns Some(vec![15, 10])
+        Have it generate a value 
+        Assert that its parsable to f64
+        Assert that number of decimal places is 10 and number of digits before decimal is 15
+        */
+        let mut i = 0;
+        let statement_data: HashMap<String, String> = HashMap::new(); //Not Needed For This Test (Only Used For Email Generation)
+        while i < 500000 {
+            //Create DECIMAL(m, n) Data type where m and n are values within f64 range
+            let mut rng = rand::thread_rng();
+            let m: u16 = rng.gen_range(1..16);
+            let n: u16 = rng.gen_range(1..11);
+            let data_type = format!("DECIMAL({}, {})", m, n);
+            let data_type = data_type.as_str();
+            assert_eq!(super::check_data_type(data_type), true);
+            let size = super::set_variable_size(data_type);
+            assert_eq!(size.is_some(), true, "Returned a None Value");
+            assert_eq!(size.clone().unwrap(), vec![m, n], "Size not equal to vec![15, 10]");
+            let generated_value = super::get_random_data(data_type, size, &statement_data);
+            assert_eq!(generated_value.parse::<f64>().is_ok(), true, "Failed To Parse Generated Decimal Value To f64");
+            let decimal_split: Vec<&str> = generated_value.split('.').collect();
+            assert!(decimal_split[0].len() <= m as usize, "Number Of Digits Before Decimal Is Greater Than {}", m);
+            assert!(decimal_split[1].len() <= n as usize, "Number Of Digits After Decimal Is Greater Than {}", n);
+            i += 1;
+            print!("\rIteration {} Passed", i);
+            stdout().flush().unwrap();
+        }
+        println!("");
+    }
+
 }
