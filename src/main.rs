@@ -6,9 +6,10 @@ use std::{
 };
 mod generator;
 
+use rand::{seq::SliceRandom, thread_rng};
+
 use crate::generator::{
-    check_compound_attribute, check_data_type, check_key_definition, generate_mock_data,
-    get_references, get_referenced_attribute, merge_compound, get_random_data
+    check_compound_attribute, check_data_type, check_key_definition, check_pair, create_insert_statement, get_random_data, get_referenced_attribute, get_references, merge_compound, set_variable_size
 };
 
 fn write_to_file(generated_statement: String, path: &String) -> io::Result<()> {
@@ -1251,5 +1252,608 @@ mod tests {
             stdout().flush().unwrap();
         }
         println!();
+    }
+}
+pub(crate) fn generate_mock_data(
+    tables: &Vec<String>,
+    key_dictionary: &HashMap<String, Vec<String>>,
+    reference_dictionary: &HashMap<String, Vec<HashMap<String, String>>>,
+    path: &String,
+    iterations: u16,
+) {
+    /*
+        * Generates the mock data for the tables
+        * Writes the mock data to the file specified by path
+
+        :parameters:
+            - `tables`: The vector of tables to generate mock data for
+            - `key_dictionary`: The hashmap of keys for each table
+            - `reference_dictionary`: The hashmap of references for each table
+            - `path`: The path to write the mock data to
+            - `iterations`: The number of iterations to generate mock data for
+    */
+
+    let mut unique_attribute_checker: HashMap<String, Vec<String>> = HashMap::new();
+    let mut unique_pair_checker: HashMap<String, Vec<Vec<String>>> = HashMap::new();
+
+    let mut statements_generated: u16 = 0;
+
+    print!(
+        "Generating SQL Inserts: {}/{} Created",
+        statements_generated, iterations
+    );
+    stdout().flush().unwrap();
+
+    for table in tables.into_iter() {
+        let mut pairwise_table = false;
+
+        let table: Vec<&str> = table.split_whitespace().collect();
+
+        let num_statements = table[0].parse::<i32>().unwrap(); // Keeps Track of Number of Statements to Generate
+        let table_name = String::from(table[1]); //Table name
+        let mut table_attributes: String = table[2..] //Table attributes
+            .join(" ")
+            .to_string();
+
+        table_attributes.remove(0); // Remove beginning parenthesis
+        table_attributes.remove(table_attributes.len() - 1); // Remove ending parenthesis
+
+        let table_attributes: Vec<String> = table_attributes // Split attributes -> example element: 'PK userID INTEGER'
+            .clone()
+            .split(",")
+            .map(|s| s.to_owned())
+            .collect();
+
+        let check_references = reference_dictionary.get(&table_name);
+        let attribute_order_keeper: Vec<String> = table_attributes.clone(); // Keeps Track of Order of Attributes. Used for Creating Insert Statements
+
+        let mut primary_keys: Vec<String> = Vec::new();
+
+        // Check if table is a composite keyed table
+        if let Some(_check_references) = check_references {
+            for attribute in &table_attributes {
+                if attribute.trim()[..2].to_uppercase() == "PK".to_string() {
+                    primary_keys.push(attribute.to_string());
+                }
+            }
+            if primary_keys.len() > 1 {
+                pairwise_table = true;
+            }
+        }
+
+        for _ in 0..num_statements {
+            // Stores generated value for CURRENT Insert statement. Resets after each insert statement is generated
+            let mut statement_data: HashMap<String, String> = HashMap::new();
+
+            // Keep track of previous attribute [Used for tables that reference the same table attribute multiple times]
+            // (PK/FK userID1 INTEGER profile(userID), PK/FK userID2 INTEGER profile(userID)
+            let mut referenced_attributes: HashMap<String, Vec<String>> = HashMap::new();
+
+            // Used in pairwise (composite) key scenarios
+            let mut pair_list: Vec<String> = Vec::new();
+
+            for attribute in &table_attributes {
+                let pairwise_attribute =
+                    if pairwise_table && primary_keys.contains(&attribute.to_string()) {
+                        true
+                    } else {
+                        false
+                    };
+
+                let mut attribute_definition: Vec<String> = attribute
+                    .trim()
+                    .split_whitespace()
+                    .map(|s| s.to_owned())
+                    .collect();
+
+                let isCompound = merge_compound(&mut attribute_definition);
+
+                let attribute_definition = attribute_definition;
+
+                match &attribute_definition.len() {
+                    1 => {
+                        /*
+                         * User requests default value for attribute
+                         * Does not need to specify attribute
+                         * For instance if table has attribute that would be NULL for mock data user can put "NULL"
+                         * Then for each insert, that attribute will be NULL for
+                         */
+                        match attribute_definition[0].to_uppercase().as_str() {
+                            // TODO - Add more default values
+                            "0" | "NULL" | "TRUE" | "FALSE" => {
+                                statement_data.insert(
+                                    attribute_definition[0].to_string(),
+                                    attribute_definition[0].to_string(),
+                                );
+                            }
+                            _ => {
+                                println!("[!] Invalid default value for attribute");
+                                continue;
+                            }
+                        }
+                    }
+                    2 => {
+                        /*
+                            * Attribute Definition Is Of The Form:
+                            * [attribute name] [attribute type]
+                            * Example: 'userID INTEGER'
+
+                            * Generate Data For Attribute
+                        */
+
+                        let attribute_name = attribute_definition[0].to_string();
+                        let attribute_type = attribute_definition[1].to_uppercase().to_string();
+
+                        let optional_variable_size: Option<Vec<u16>> =
+                            set_variable_size(&attribute_type);
+
+                        let generated_data: String = get_random_data(
+                            &attribute_type,
+                            optional_variable_size.clone(),
+                            &statement_data,
+                        );
+
+                        statement_data.insert(attribute_name, generated_data);
+                    }
+                    3 => match isCompound {
+                        /*
+                            * Attribute Definition Is Of The Form:
+                            * [key definition] [attribute name] [attribute type]
+                            * OR
+                            * [attribute name] [compound] [(compound attribute)]
+                            * Standard Example: 'PK userID INTEGER'
+                            * Compound Example: 'full_name COMPOUND (first_name VARCHAR(20), middle_initial CHAR(1), last_name VARCHAR(20)
+
+                            * Generate Data For Attribute
+                        */
+                        true => {
+                            /*
+                             * Compound Attribute. Generate Data For Each Attribute In The Compound Attribute
+                             * Example: 'full_name COMPOUND (first_name VARCHAR(20), middle_initial CHAR(1), last_name VARCHAR(20))'
+                             */
+                            let attribute_name = attribute_definition[0].to_string();
+                            // Remove beginning and ending parenthesis of compound attribute
+                            let compound_attribute = attribute_definition[2]
+                                [1..attribute_definition[2].len() - 1]
+                                .to_string();
+                            let compound_attribute =
+                                compound_attribute.split("; ").collect::<Vec<&str>>();
+
+                            let mut compound_attribute_data: Vec<String> = Vec::new();
+
+                            // Iterate over each attribute in the compound attribute, get type and size, then generate data
+                            for attribute in compound_attribute {
+                                let attribute =
+                                    attribute.split_whitespace().collect::<Vec<&str>>();
+                                let attribute_type =
+                                    attribute[1].trim().to_uppercase().to_string();
+
+                                let optional_variable_size: Option<Vec<u16>> =
+                                    set_variable_size(&attribute_type);
+
+                                let generated_data: String = get_random_data(
+                                    &attribute_type,
+                                    optional_variable_size.clone(),
+                                    &statement_data,
+                                );
+
+                                compound_attribute_data.push(generated_data);
+                            }
+
+                            // Create string of compound attribute data in form (data1, data2, data3, ...)
+                            let compound_attribute_data = compound_attribute_data.join(", ");
+                            statement_data.insert(attribute_name, compound_attribute_data);
+                        }
+                        false => {
+                            /*
+                             * Standard Attribute. Proceed As Before
+                             */
+                            let attribute_name = attribute_definition[1].to_string();
+                            let attribute_type =
+                                attribute_definition[2].to_uppercase().to_string();
+
+                            let optional_variable_size: Option<Vec<u16>> =
+                                set_variable_size(&attribute_type);
+
+                            let mut generated_data: String = get_random_data(
+                                &attribute_type,
+                                optional_variable_size.clone(),
+                                &statement_data,
+                            );
+
+                            if unique_attribute_checker.contains_key(&attribute_name) {
+                                while (unique_attribute_checker[&attribute_name])
+                                    .contains(&generated_data)
+                                {
+                                    generated_data = get_random_data(
+                                        &attribute_type,
+                                        optional_variable_size.clone(),
+                                        &statement_data,
+                                    );
+                                }
+                            }
+
+                            unique_attribute_checker
+                                .entry(attribute_name.clone())
+                                .or_insert(Vec::new())
+                                .push(generated_data.clone());
+
+                            statement_data.insert(attribute_name, generated_data.clone());
+
+                            if pairwise_attribute {
+                                pair_list.push(generated_data);
+                            }
+                        }
+                    }
+                    4 => match isCompound {
+                        /*
+                            * Attribute Definition Is Of The Form:
+                            * [foreign key definition] [attribute name] [attribute type] [foreign table]
+                            * OR
+                            * [primary/unique key] [attribute name] [compound] [(compound attribute)]
+                            * Example: 'PK/FK userID INTEGER profile(userID)'
+
+                            * Generate Data For Attribute
+                        */
+                        true => {
+                            /*
+                                * Keyed Compound Attribute.
+                                * Generate Data For Each Attribute In The Compound Attribute
+                                * Add to unique_attribute_checker
+                            */
+                            let comp_attr_name = attribute_definition[1].to_string();
+                            let comp_attr_compound = attribute_definition[3].to_string();
+
+                            let comp_attr_compound =
+                                comp_attr_compound[1..comp_attr_compound.len() - 1].to_string();
+
+                            let comp_attr_compound =
+                                comp_attr_compound.split("; ").collect::<Vec<&str>>();
+
+                            loop {
+                                let mut compound_attribute_data: Vec<String> = Vec::new();
+                                // Iterate over each attribute in the compound attribute, get type and size, then generate data
+                                for attribute in comp_attr_compound.iter() {
+                                    let attribute =
+                                        attribute.split_whitespace().collect::<Vec<&str>>();
+                                    let attribute_type =
+                                        attribute[1].trim().to_uppercase().to_string();
+
+                                    let optional_variable_size: Option<Vec<u16>> =
+                                        set_variable_size(&attribute_type);
+
+                                    let generated_data: String = get_random_data(
+                                        &attribute_type,
+                                        optional_variable_size.clone(),
+                                        &statement_data,
+                                    );
+
+                                    compound_attribute_data.push(generated_data);
+                                }
+
+                                // Create string of compound attribute data in form (data1, data2, data3, ...)
+                                let compound_attribute_data =
+                                    compound_attribute_data.join(", ");
+
+                                // If primary or unique key, add to unique_attribute_checker
+                                if unique_attribute_checker.contains_key(&comp_attr_name) &&
+                                    unique_attribute_checker[&comp_attr_name].contains(&compound_attribute_data) {
+                                    continue;
+                                }
+
+                                // Add to unique_attribute_checker
+                                unique_attribute_checker
+                                    .entry(comp_attr_name.clone())
+                                    .or_insert(Vec::new())
+                                    .push(compound_attribute_data.clone());
+
+                                // Add to statement_data
+                                statement_data.insert(
+                                    comp_attr_name.clone(),
+                                    compound_attribute_data.clone(),
+                                );
+
+                                // If pairwise, add to pair_list
+                                if pairwise_attribute {
+                                    if pair_list.contains(&compound_attribute_data) {
+                                        continue;
+                                    }
+                                    pair_list.push(compound_attribute_data.clone());
+                                }
+                                break;
+                            }
+                        }
+                        false => {
+                            /*
+                                * Standard Foreign Key Attribute.
+                                * Generate Data For Attribute Based On Referenced Attribute
+                                * I.E. Use Previously Generated Data From Referenced Attribute
+                            */
+                            let (referenced_table, referenced_attribute) =
+                                get_references(&attribute_definition, 3);
+
+                            if get_referenced_attribute(
+                                key_dictionary.get(&referenced_table).unwrap(),
+                                &referenced_attribute.to_uppercase().to_string(),
+                            )
+                                .is_none()
+                            {
+                                println!(
+                                    "\nPROGRAM ERROR IN GENERATING DATA [Getting Referenced Attribute]"
+                                );
+                                std::process::exit(1);
+                            }
+
+                            loop {
+                                /*
+                                    * Reference does exist and is valid.
+                                    * Get a random reference for that attribute from the list
+                                 */
+                                let randomized_data = unique_attribute_checker
+                                    .get(&referenced_attribute.to_string())
+                                    .unwrap()
+                                    .choose(&mut thread_rng())
+                                    .unwrap()
+                                    .to_string();
+
+                                /*
+                                    * Check if the randomized data is the same as the previous data
+                                    * If it is, generate new data
+                                    * [key definition][0] [attribute name][1] [attribute type][2] [foreign table][3]
+                                 */
+                                if referenced_attributes
+                                    .contains_key(&referenced_attribute.to_string())
+                                {
+                                    if referenced_attributes
+                                        .get(&attribute_definition[3].to_string())
+                                        .unwrap()
+                                        .contains(&attribute_definition[1].to_string())
+                                    {
+                                        println!("Data being generated for same attribute.");
+                                        println!("Program error.");
+                                        println!("Exiting program.");
+
+                                        std::process::exit(1);
+                                    } else {
+                                        if referenced_attributes
+                                            .get(&attribute_definition[3].to_string())
+                                            .unwrap()
+                                            .contains(&randomized_data)
+                                        {
+                                            continue;
+                                        }
+                                    }
+                                }
+
+                                /*
+                                    * True if table is composite keyed
+                                    * Pair list can't have same data for keyed attributes if it does, regenerate data for current attribute
+                                */
+                                if pairwise_attribute {
+                                    if pair_list.contains(&randomized_data) {
+                                        continue;
+                                    }
+                                    pair_list.push(randomized_data.clone());
+                                } else {
+                                    //Not pairwise, check if data is unique for attribute or continue loop and generate new data for attribute
+                                    if attribute_definition[0].starts_with("PK")
+                                        || attribute_definition[0].starts_with("AK")
+                                    {
+                                        if unique_attribute_checker
+                                            .contains_key(&attribute_definition[1])
+                                            && unique_attribute_checker
+                                            [&attribute_definition[1]]
+                                            .contains(&randomized_data)
+                                        {
+                                            continue;
+                                        }
+
+                                        unique_attribute_checker
+                                            .entry(attribute_definition[1].to_string())
+                                            .or_insert(Vec::new())
+                                            .push(randomized_data.clone());
+                                    }
+                                }
+
+                                /*
+                                    * Add the attribute to the list of referenced attributes
+                                    * Add the data to the statement data
+                                    * Break out of the loop
+                                 */
+                                referenced_attributes
+                                    .entry(attribute_definition[3].to_string())
+                                    .or_insert(Vec::new())
+                                    .push(attribute_definition[1].to_string());
+
+                                statement_data.insert(
+                                    attribute_definition[1].to_string(),
+                                    randomized_data,
+                                );
+                                break;
+                            }
+                        }
+                    }
+                    5 => {
+                        /*
+                            * This only runs when its a compound attribute with a foreign key
+                            * Attribute Definition Is Of The Form:
+                            * [key definition][0] [attribute name][1] [compound][2] [(compound attribute)][3] [foreign table][4]
+                        */
+                        let (referenced_table, referenced_attribute) =
+                            get_references(&attribute_definition, 4);
+
+                        if get_referenced_attribute(
+                            key_dictionary.get(&referenced_table).unwrap(),
+                            &referenced_attribute.to_uppercase().to_string(),
+                        )
+                            .is_none()
+                        {
+                            println!(
+                                "\nPROGRAM ERROR IN GENERATING DATA [Getting Referenced Attribute]"
+                            );
+                            std::process::exit(1);
+                        }
+
+                        loop {
+                            /*
+                                * Reference does exist and is valid.
+                                * Get a random reference for that attribute from the list
+                            */
+                            let randomized_data = unique_attribute_checker
+                                .get(&referenced_attribute.to_string())
+                                .unwrap()
+                                .choose(&mut thread_rng())
+                                .unwrap()
+                                .to_string();
+
+                            if referenced_attributes
+                                .contains_key(&referenced_attribute.to_string())
+                            {
+                                if referenced_attributes
+                                    .get(&attribute_definition[4].to_string())
+                                    .unwrap()
+                                    .contains(&attribute_definition[1].to_string())
+                                {
+                                    println!("Data being generated for same attribute.");
+                                    println!("Program error.");
+                                    println!("Exiting program.");
+
+                                    std::process::exit(1);
+                                } else {
+                                    if referenced_attributes
+                                        .get(&attribute_definition[4].to_string())
+                                        .unwrap()
+                                        .contains(&randomized_data)
+                                    {
+                                        continue;
+                                    }
+                                }
+                            }
+
+                            /*
+                               * True if table is composite keyed
+                               * Pair list can't have same data for keyed attributes if it does, regenerate data for current attribute
+                            */
+                            if pairwise_attribute {
+                                if pair_list.contains(&randomized_data) {
+                                    continue;
+                                }
+                                pair_list.push(randomized_data.clone());
+                            } else {
+                                //Not pairwise, check if data is unique for attribute or continue loop and generate new data for attribute
+                                if attribute_definition[0].starts_with("PK")
+                                    || attribute_definition[0].starts_with("AK")
+                                {
+                                    if unique_attribute_checker
+                                        .contains_key(&attribute_definition[1])
+                                        && unique_attribute_checker[&attribute_definition[1]]
+                                        .contains(&randomized_data)
+                                    {
+                                        continue;
+                                    }
+
+                                    unique_attribute_checker
+                                        .entry(attribute_definition[1].to_string())
+                                        .or_insert(Vec::new())
+                                        .push(randomized_data.clone());
+                                }
+                            }
+
+                            /*
+                                * Add the attribute to the list of referenced attributes
+                                * Add the data to the statement data
+                                * Break out of the loop
+                             */
+                            referenced_attributes
+                                .entry(attribute_definition[4].to_string())
+                                .or_insert(Vec::new())
+                                .push(attribute_definition[1].to_string());
+
+                            statement_data.insert(
+                                attribute_definition[1].to_string(),
+                                randomized_data,
+                            );
+                            break;
+
+                        }
+                    }
+                    _ => {
+                        println!("\nPROGRAM ERROR IN GENERATING DATA [Attribute Definition Length]");
+                        std::process::exit(1);
+                    }
+                }
+            }
+            /*
+                * Check if the table is a pairwise table
+                * If it is, check if the pair has been generated before
+                * If it has, generate new data for the pair
+             */
+
+            if pairwise_table {
+                //If pairwise table, make sure composite key is not already existent
+                if !unique_pair_checker.contains_key(&table_name) {
+                    //True if table does not exist in unique_pair_checker
+                    unique_pair_checker
+                        .entry(table_name.clone())
+                        .or_insert(Vec::new())
+                        .push(pair_list.clone());
+                } else {
+                    // Composite table exists, check if pair has been generated before
+                    let (pair_changed, new_pair) = check_pair(
+                        &pair_list,
+                        &unique_pair_checker[&table_name],
+                        &attribute_order_keeper,
+                        &unique_attribute_checker,
+                        0,
+                    );
+                    if pair_changed {
+                        // Pair did exist and new data was generated in check_pair, change data in statement_data to match
+                        // Rewrite the data for the composite key attributes in the statement data
+                        let mut index = 0; // Used to match the new data with the correct attribute
+                        for attribute in attribute_order_keeper.iter() {
+                            let attribute_definitions: Vec<&str> =
+                                attribute.split_ascii_whitespace().collect();
+
+                            if primary_keys.contains(&attribute.to_string()) {
+                                // Attribute is part of composite key
+                                // Rewrite the data for the attribute
+                                statement_data.insert(
+                                    attribute_definitions[1].to_string(),
+                                    new_pair[index].to_string(),
+                                );
+                                index += 1;
+                            }
+                        }
+                    }
+
+                    // Add the new pair to the unique_pair_checker
+                    unique_pair_checker
+                        .entry(table_name.clone())
+                        .or_insert(Vec::new())
+                        .push(new_pair.clone());
+                }
+            }
+
+            // Write the insert statement to the file. Executes each time, will modify later for improved time complexity
+            match write_to_file(
+                create_insert_statement(&table_name, &table_attributes, &statement_data),
+                path,
+            ) {
+                Ok(_) => {
+                    // Successfully wrote to file, increment statements_generated and print progress
+                    statements_generated += 1;
+                    print!(
+                        "\rGenerating SQL Inserts: {}/{} Created",
+                        statements_generated, iterations
+                    );
+                    stdout().flush().unwrap();
+                }
+                Err(_) => {
+                    // Usually implies bigger error, just exit the program
+                    println!("[!] Unable to write to file");
+                    std::process::exit(1);
+                }
+            }
+        }
     }
 }
