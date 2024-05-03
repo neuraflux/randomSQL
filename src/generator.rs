@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use chrono::{NaiveDate, NaiveDateTime};
 use fake::{
-    faker::{address::en::*, company::en::*, internet::en::*, name::raw::*, phone_number::en::*},
+    faker::{address::en::*, company::en::*, internet::en::*, lorem::en::Word, name::raw::*, phone_number::en::*},
     locales::*,
     Fake,
     Faker,
@@ -318,77 +318,78 @@ pub(crate) fn create_insert_statement(
             }
             _ => {}
         }
+        let is_compound = true;
 
-        match isCompound {
+        insert_string += &match is_compound {
             true => {
                 let compound_attributes = data.split(", ").collect::<Vec<&str>>();
                 for (cIndex, cAttribute) in compound_attributes.iter().enumerate() {
-                    if cIndex == compound_attributes.len() - 1 {
+                    compound_attribute_string += &if cIndex == compound_attributes.len() - 1 {
                         if cAttribute.parse::<f64>().is_ok() {
-                            compound_attribute_string += &format!("{})", cAttribute);
+                            format!("{})", cAttribute)
                         } else if cAttribute.to_ascii_uppercase() == "NULL" {
-                            compound_attribute_string += "NULL)";
+                            "NULL)".to_string()
                         } else if cAttribute == &"0" {
-                            compound_attribute_string += "0)";
+                            "0)".to_string()
                         } else if cAttribute.to_ascii_uppercase() == "TRUE" {
-                            compound_attribute_string += "TRUE)";
+                            "TRUE)".to_string()
                         } else if cAttribute.to_ascii_uppercase() == "FALSE" {
-                            compound_attribute_string += "FALSE)";
+                            "FALSE)".to_string()
                         } else {
-                            compound_attribute_string += &format!("\'{}\')", cAttribute);
+                            format!("\'{}\')", cAttribute)
                         }
                     } else {
                         if cAttribute.parse::<f64>().is_ok() {
-                            compound_attribute_string += &format!("{},", cAttribute);
+                            format!("{},", cAttribute)
                         } else if cAttribute.to_ascii_uppercase() == "NULL" {
-                            compound_attribute_string += "NULL,";
+                            "NULL,".to_string()
                         } else if cAttribute == &"0" {
-                            compound_attribute_string += "0,";
+                            "0,".to_string()
                         } else if cAttribute.to_ascii_uppercase() == "TRUE" {
-                            compound_attribute_string += "TRUE,";
+                            "TRUE,".to_string()
                         } else if cAttribute.to_ascii_uppercase() == "FALSE" {
-                            compound_attribute_string += "FALSE,";
+                            "FALSE,".to_string()
                         } else {
-                            compound_attribute_string += &format!("\'{}\',", cAttribute);
+                            format!("\'{}\',", cAttribute)
                         }
                     }
                 }
                 if index == table_attributes.len() - 1 {
-                    insert_string += &format!("{});", compound_attribute_string);
+                    format!("{});", compound_attribute_string)
                 } else {
-                    insert_string += &format!("{}, ", compound_attribute_string);
+                    format!("{}, ", compound_attribute_string)
                 }
             }
             false => {
                 // If we're at the last piece of data, close the statement with a semicolon
                 if index == table_attributes.len() - 1 {
                     if data.parse::<f64>().is_ok() {
-                        insert_string += &format!("{});", data);
+                        format!("{});", data)
                     } else if data.to_ascii_uppercase() == "NULL" {
-                        insert_string += "NULL);";
+                        "NULL);".to_string()
                     } else if data == "0" {
-                        insert_string += "0);";
+                        "0);".to_string()
                     } else if data.to_ascii_uppercase() == "TRUE" {
-                        insert_string += "TRUE);";
+                        "TRUE);".to_string()
                     } else if data.to_ascii_uppercase() == "FALSE" {
-                        insert_string += "FALSE);";
+                        "FALSE);".to_string()
                     } else {
-                        insert_string += &format!("\'{}\');", data);
+                        format!("\'{}\');", data)
                     }
                     // If we're not at the last piece of data, add a comma to the end of the statement
                 } else {
                     if data.parse::<f64>().is_ok() {
-                        insert_string += &format!("{}, ", data);
+                        format!("{}, ", data)
                     } else if data.to_ascii_uppercase() == "NULL" {
-                        insert_string += "NULL, ";
+                        "NULL, ".to_string()
                     } else if data == "0" {
-                        insert_string += "0, ";
+                        "0, ".to_string()
                     } else if data.to_ascii_uppercase() == "TRUE" {
-                        insert_string += "TRUE, ";
+                        "TRUE, ".to_string()
                     } else if data.to_ascii_uppercase() == "FALSE" {
-                        insert_string += "FALSE, ";
+                        "FALSE, ".to_string()
                     } else {
-                        insert_string += &format!("\'{}\', ", data);
+                        format!("\'{}\', ", data)
                     }
                 }
             }
@@ -600,6 +601,13 @@ pub(crate) fn get_random_data(
             let industry = Industry().fake::<String>();
             industry.replace("'", "")
         }
+        "PRODUCT" => {
+            // Generate random product using faker
+            let company_name = CompanyName().fake::<String>();
+            let industry = Industry().fake::<String>();
+            let word = Word().fake::<String>();
+            format!("{} {} {}", company_name, industry, word)
+        }
         "PROFESSION" => {
             // Generate random profession using faker
             let profession = Profession().fake::<String>();
@@ -791,3 +799,4 @@ pub(crate) fn set_variable_size(attr_type: &str) -> Option<Vec<u16>> {
     };
     some_returned_value
 }
+
