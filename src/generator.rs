@@ -1,11 +1,16 @@
 #![allow(non_snake_case)]
 #![allow(unused_assignments)]
 
-use std::collections::HashMap;
+use std::iter::FromIterator;
+use std::{collections::HashMap, fmt::Debug};
 
 use chrono::{NaiveDate, NaiveDateTime};
+use enum_iterator::{all, Sequence};
 use fake::{
-    faker::{address::en::*, company::en::*, internet::en::*, lorem::en::Word, name::raw::*, phone_number::en::*},
+    faker::{
+        address::en::*, company::en::*, internet::en::*, lorem::en::Word, name::raw::*,
+        phone_number::en::*,
+    },
     locales::*,
     Fake,
     Faker,
@@ -15,6 +20,253 @@ use fake::{
 
 use rand::{seq::SliceRandom, thread_rng, Rng};
 
+#[derive(Debug, PartialEq, Sequence)]
+pub enum Generators {
+    CHAR,
+    VARCHAR,
+    DECIMAL,
+    MONEY,
+    NAME,
+    PASSWORD,
+    USERNAME,
+    INTEGER,
+    BOOLEAN,
+    DATE,
+    TIMESTAMP,
+    TIME,
+    GROUP,
+    EMAIL,
+    STATE_US,
+    CITY_US,
+    CITY_SHORT,
+    STREET_NAME_US,
+    ZIP_US,
+    SSN,
+    PHONE,
+    COUNTRY,
+    COMPANYNAME,
+    INDUSTRY,
+    PRODUCT,
+    PROFESSION,
+}
+impl Generators {
+    fn generate(
+        &self,
+        optional_data_size: Option<Vec<u16>>,
+        statement_data: &HashMap<String, String>,
+    ) -> String {
+        match self {
+            Generators::CHAR => {
+                let char_size = optional_data_size
+                    .unwrap_or_else(|| vec![thread_rng().gen_range(3..12)])
+                    .get(0)
+                    .unwrap()
+                    .to_owned();
+                Faker
+                    .fake::<String>()
+                    .chars()
+                    .take(char_size as usize)
+                    .collect::<String>()
+            }
+            Generators::VARCHAR => {
+                let char_size = optional_data_size
+                    .unwrap_or_else(|| vec![thread_rng().gen_range(3..12)])
+                    .get(0)
+                    .unwrap()
+                    .to_owned();
+                Faker
+                    .fake::<String>()
+                    .chars()
+                    .take(char_size as usize)
+                    .collect::<String>()
+            }
+            Generators::DECIMAL => {
+                let unwrapped_decimal = optional_data_size.unwrap_or_else(|| {
+                    vec![thread_rng().gen_range(3..12), thread_rng().gen_range(3..12)]
+                });
+                let digits_before_decimal = unwrapped_decimal.get(0).unwrap().to_owned();
+                let digits_after_decimal = unwrapped_decimal.get(1).unwrap().to_owned();
+                format!(
+                    "{}.{}",
+                    thread_rng().gen_range(0..10_u64.pow(digits_before_decimal as u32)),
+                    thread_rng().gen_range(0..10_u64.pow(digits_after_decimal as u32)),
+                )
+            }
+            Generators::MONEY => {
+                //Attempt to unwrap and get vec[0] of optional data-size, if none, set random value
+                let dollar_size = optional_data_size
+                    .unwrap_or_else(|| vec![thread_rng().gen_range(3..12)])
+                    .get(0)
+                    .unwrap()
+                    .to_owned();
+
+                // Generate a dollar amount between 3 figures and either dollar size or 12 figures
+                let dollar_amount = thread_rng().gen_range(0..10i32.pow(dollar_size as u32));
+                let cents_amount = thread_rng().gen_range(0..100);
+                // Create decimal value from dollar_amount and cents_amount
+                let decimal_value = format!("{}.{}", dollar_amount, cents_amount);
+                decimal_value
+            }
+            Generators::NAME => {
+                let name = Name(EN).fake::<String>();
+                name.replace("'", "")
+            }
+            Generators::PASSWORD => {
+                Password(std::ops::Range {
+                    start: 8,
+                    end: (optional_data_size
+                        .unwrap_or_else(|| vec![thread_rng().gen_range(8..12)])
+                        .get(0)
+                        .unwrap()
+                        .to_owned() as usize), //Attempt to unwrap and get vec[0] of optional data-size, if none, set random value
+                })
+                .fake()
+            }
+            Generators::USERNAME => {
+                let first_name = FirstName(EN).fake::<String>();
+                let last_name = LastName(EN).fake::<String>();
+                let mut username = format!("{}{}", first_name, last_name);
+                //Check if optional data size is specified in vec[0], if so, truncate username to that size if it is larger
+                if let Some(size) = optional_data_size {
+                    if username.len() > size[0] as usize {
+                        username.truncate(size[0] as usize);
+                    }
+                }
+
+                username.replace("'", "")
+            }
+            Generators::INTEGER => Faker.fake::<u16>().to_string(),
+            Generators::BOOLEAN => Faker.fake::<bool>().to_string(),
+            Generators::DATE => {
+                let year = thread_rng().gen_range(1900..2021);
+                let month = thread_rng().gen_range(1..13);
+                let day = thread_rng().gen_range(1..29);
+                NaiveDate::from_ymd_opt(year, month, day)
+                    .unwrap()
+                    .to_string()
+            }
+            Generators::TIMESTAMP => {
+                let year = thread_rng().gen_range(1900..2021);
+                let month = thread_rng().gen_range(1..13);
+                let day = thread_rng().gen_range(1..29);
+                let hour = thread_rng().gen_range(0..24);
+                let minute = thread_rng().gen_range(0..60);
+                let second = thread_rng().gen_range(0..60);
+                NaiveDateTime::new(
+                    NaiveDate::from_ymd_opt(year, month, day).unwrap(),
+                    chrono::NaiveTime::from_hms_opt(hour, minute, second).unwrap(),
+                )
+                .to_string()
+            }
+            Generators::TIME => {
+                let hour = thread_rng().gen_range(0..24);
+                let minute = thread_rng().gen_range(0..60);
+                let second = thread_rng().gen_range(0..60);
+                chrono::NaiveTime::from_hms_opt(hour, minute, second)
+                    .unwrap()
+                    .to_string()
+            }
+            Generators::GROUP => ["Member", "Mod"]
+                .choose(&mut thread_rng())
+                .unwrap()
+                .to_string(),
+            Generators::EMAIL => {
+                let domains = vec![
+                    "@outlook.com",
+                    "@gmail.com",
+                    "@pitt.edu",
+                    "@yahoo.com",
+                    "@proton.mail",
+                    "@pm.me",
+                    "@paranoid.email",
+                ];
+                let username = match (
+                    statement_data.get(&"name".to_string()),
+                    statement_data.get(&"full name".to_string()),
+                    statement_data.get(&"full_name".to_string()),
+                ) {
+                    (Some(name), _, _) => name.replace(" ", ""),
+                    (_, Some(full_name), _) => full_name.replace(" ", ""),
+                    (_, _, Some(full_name_underscore)) => full_name_underscore.replace(" ", ""),
+                    _ => {
+                        let name = Name(EN).fake::<String>();
+                        name.replace("'", "").to_string();
+                        name.replace(" ", "").to_string()
+                    }
+                };
+                format!("{}{}", username, domains.choose(&mut thread_rng()).unwrap())
+            }
+            Generators::STATE_US => {
+                //Generate random state in US using faker
+                let state = StateName().fake::<String>();
+                state.replace("'", "")
+            }
+            Generators::CITY_US => {
+                let city = CityName().fake::<String>();
+                city.replace("'", "")
+            }
+            Generators::CITY_SHORT => {
+                let city_prefix = CityPrefix().fake::<String>();
+                city_prefix.replace("'", "")
+            }
+            Generators::STREET_NAME_US => {
+                let street_address = StreetName().fake::<String>();
+                street_address.replace("'", "")
+            }
+            Generators::ZIP_US => {
+                let zip = ZipCode().fake::<String>();
+                zip.replace("'", "")
+            }
+            Generators::SSN => {
+                // Generate random 9 digit number
+                let ssn = thread_rng().gen_range(100_000_000..1_000_000_000);
+                ssn.to_string()
+            }
+            Generators::PHONE => {
+                // Generate random phone number using faker
+                let phone_number = PhoneNumber().fake::<String>();
+                phone_number.replace("'", "")
+            }
+            Generators::COUNTRY => {
+                // Generate random country using faker
+                let country = CountryName().fake::<String>();
+                country.replace("'", "")
+            }
+            Generators::COMPANYNAME => {
+                // Generate random company name using faker
+                let company_name = CompanyName().fake::<String>();
+                company_name.replace("'", "")
+            }
+            Generators::INDUSTRY => {
+                // Generate random industry using faker
+                let industry = Industry().fake::<String>();
+                industry.replace("'", "")
+            }
+            Generators::PRODUCT => {
+                // Generate random product using faker
+                let company_name = CompanyName().fake::<String>();
+                let industry = Industry().fake::<String>();
+                let word = Word().fake::<String>();
+                format!("{} {} {}", company_name, industry, word)
+            }
+            Generators::PROFESSION => {
+                // Generate random profession using faker
+                let profession = Profession().fake::<String>();
+                profession.replace("'", "")
+            }
+        }
+    }
+    fn generate_from_name(
+        generator_name: &str,
+        optional_data_size: Option<Vec<u16>>,
+        statement_data: &HashMap<String, String>,
+    ) -> String {
+        let generator = all::<Generators>()
+            .find(|g| generator_name.starts_with(&format!("{:?}", g)))
+            .expect(&format!("Did not find a generator for {}", generator_name));
+        generator.generate(optional_data_size, statement_data)
+    }
+}
 
 pub(crate) fn check_compound_attribute(index: usize, attribute_checker: &Vec<String>) -> bool {
     /*
@@ -29,7 +281,6 @@ pub(crate) fn check_compound_attribute(index: usize, attribute_checker: &Vec<Str
         :Returns:
             - `bool`: True if valid, false if invalid
     */
-
     // First, remove the first and last parenthesis of attribute_checker[2]
     let compound_attribute =
         attribute_checker[index][1..attribute_checker[index].len() - 1].to_string();
@@ -43,11 +294,17 @@ pub(crate) fn check_compound_attribute(index: usize, attribute_checker: &Vec<Str
         let compound_attribute = compound_attribute.trim();
         let compound_attribute = compound_attribute.split(" ").collect::<Vec<&str>>();
         if compound_attribute.len() != 2 {
-            println!("[!] Invalid Compound Attribute");
+            println!(
+                "[!] Invalid Compound Attribute: {}",
+                compound_attribute.join(",")
+            );
             return false;
         }
         if !check_data_type(compound_attribute[1].to_uppercase().as_str()) {
-            println!("[!] Invalid Data Type");
+            println!(
+                "[!] Invalid Data Type {}",
+                compound_attribute[1].to_uppercase().as_str()
+            );
             return false;
         }
     }
@@ -68,72 +325,57 @@ pub(crate) fn check_data_type(attribute_type: &str) -> bool {
     */
 
     //Recreate valid types variable, but put all types in alphabetical order
-    let valid_types = [
+    let mut valid_types = vec![
         "BIGINT",
         "BIT",
-        "BOOLEAN",
         "BOX",
         "BYTEA",
-        "CHAR",
         "CIDR",
         "CIRCLE",
-        "CITY_SHORT",
-        "CITY_US",
-        "COMPANYNAME",
         "COMPOUND", // Not a real data type, used for compound attributes
-        "COUNTRY",
-        "DATE",
-        "DECIMAL",
         "DOUBLE PRECISION",
-        "EMAIL",
         "ENUM",
         "FLOAT4",
         "FLOAT8",
-        "GROUP",
-        "INDUSTRY",
         "INET",
-        "INTEGER",
         "INTERVAL",
         "JSON",
         "JSONB",
         "LINE",
         "LSEG",
         "MACADDR",
-        "MONEY",
-        "NAME",
         "NUMERIC",
-        "PASSWORD",
         "PATH",
         "PG_LSN",
-        "PHONE",
         "POINT",
         "POLYGON",
-        "PROFESSION",
         "REAL",
         "SERIAL",
         "SMALLINT",
-        "SSN",
         "STATE",
-        "STATE_US",
         "STREET_ADDRESS",
         "STREET_NAME_US",
         "TEXT",
-        "TIME",
-        "TIMESTAMP",
         "TSQUERY",
         "TSVECTOR",
         "TXID_SNAPSHOT",
-        "USERNAME",
         "UUID",
-        "VARCHAR",
         "XML",
         "ZIP_US",
     ];
+    let enum_types = all::<Generators>()
+        .map(|g| format!("{:?}", g))
+        .collect::<Vec<String>>();
+    valid_types.append(&mut enum_types.iter().map(AsRef::as_ref).collect::<Vec<&str>>());
 
     // Make sure the data type is valid
-    valid_types
+    let is_valid = valid_types
         .iter()
-        .any(|&substring| attribute_type.starts_with(substring))
+        .any(|&substring| attribute_type.starts_with(substring));
+    if (!is_valid) {
+        println!("Attribute not valid! {}", attribute_type);
+    }
+    is_valid
 }
 
 pub(crate) fn check_key_definition(key_def: &str) -> bool {
@@ -228,7 +470,6 @@ pub(crate) fn check_pair(
     (pair_changed, new_pair)
 }
 
-
 pub(crate) fn create_insert_statement(
     table_name: &str,
     table_attributes: &Vec<String>,
@@ -302,14 +543,14 @@ pub(crate) fn create_insert_statement(
                         .trim()
                         .to_string();
                 }
-            }
+            },
             4 | 5 => {
                 /*
-                    * Examples of Attribute
-                    * PK/FK userID INTEGER profile(userID)
-                    * [PK/AK] full_name COMPOUND (first_name VARCHAR(20), middle_initial CHAR(1), last_name VARCHAR(20))
-                    * [FK] MBR COMPOUND (x_min INTEGER, x_max INTEGER, y_min INTEGER, y_max INTEGER) region(coordinates)
-                */
+                 * Examples of Attribute
+                 * PK/FK userID INTEGER profile(userID)
+                 * [PK/AK] full_name COMPOUND (first_name VARCHAR(20), middle_initial CHAR(1), last_name VARCHAR(20))
+                 * [FK] MBR COMPOUND (x_min INTEGER, x_max INTEGER, y_min INTEGER, y_max INTEGER) region(coordinates)
+                 */
                 data = statement_data
                     .get(attribute_name[1])
                     .unwrap()
@@ -421,202 +662,15 @@ pub(crate) fn get_random_data(
         :TODO:
             - Add First Name, Last Name, Middle Name / Middle Initial
     */
-    match attribute_type {
-        char_type if char_type.starts_with("CHAR") || char_type.starts_with("VARCHAR") => {
-            //Attempt to unwrap and get vec[0] of optional data-size, if none, set random value
-            let char_size = optional_data_size
-                .unwrap_or_else(|| vec![thread_rng().gen_range(3..12)])
-                .get(0)
-                .unwrap()
-                .to_owned();
-            Faker
-                .fake::<String>()
-                .chars()
-                .take(char_size as usize)
-                .collect::<String>()
-        }
-        decimal_type if decimal_type.starts_with("DECIMAL") => {
-            //Attempt to unwrap and get vec[0] and vec[1] of optional data-size
-            //Vec[0] is the number of digits before the decimal point
-            //Vec[1] is the number of digits after the decimal point
-            //If none, set random values of each
-            let unwrapped_decimal = optional_data_size.unwrap_or_else(|| {
-                vec![thread_rng().gen_range(3..12), thread_rng().gen_range(3..12)]
-            });
-            let digits_before_decimal = unwrapped_decimal.get(0).unwrap().to_owned();
-            let digits_after_decimal = unwrapped_decimal.get(1).unwrap().to_owned();
-            //Create decimal value from digits_before_decimal and digits_after_decimal
-            let decimal_value = format!(
-                "{}.{}",
-                thread_rng().gen_range(0..10_u64.pow(digits_before_decimal as u32)),
-                thread_rng().gen_range(0..10_u64.pow(digits_after_decimal as u32)),
-            );
-            decimal_value
-        }
-        money_type if money_type.starts_with("MONEY") => {
-            //Attempt to unwrap and get vec[0] of optional data-size, if none, set random value
-            let dollar_size = optional_data_size
-                .unwrap_or_else(|| vec![thread_rng().gen_range(3..12)])
-                .get(0)
-                .unwrap()
-                .to_owned();
+    //let generators = setup_data_generators();
+    //let generator_key = generators
+    //    .keys()
+    //    .find(|&k| attribute_type.starts_with(k))
+    //    .expect("Unknown type in data generation!");
 
-            // Generate a dollar amount between 3 figures and either dollar size or 12 figures
-            let dollar_amount = thread_rng().gen_range(0..10i32.pow(dollar_size as u32));
-            let cents_amount = thread_rng().gen_range(0..100);
-            // Create decimal value from dollar_amount and cents_amount
-            let decimal_value = format!("{}.{}", dollar_amount, cents_amount);
-            decimal_value
-        }
-        name_type if name_type.starts_with("NAME") => {
-            let name = Name(EN).fake::<String>();
-            name.replace("'", "")
-        }
-        password_type if password_type.starts_with("PASSWORD") => Password(std::ops::Range {
-            start: 8,
-            end: (optional_data_size
-                .unwrap_or_else(|| vec![thread_rng().gen_range(8..12)])
-                .get(0)
-                .unwrap()
-                .to_owned() as usize), //Attempt to unwrap and get vec[0] of optional data-size, if none, set random value
-        })
-            .fake(),
-        username_type if username_type.starts_with("USERNAME") => {
-            let first_name = FirstName(EN).fake::<String>();
-            let last_name = LastName(EN).fake::<String>();
-            let mut username = format!("{}{}", first_name, last_name);
-            //Check if optional data size is specified in vec[0], if so, truncate username to that size if it is larger
-            if let Some(size) = optional_data_size {
-                if username.len() > size[0] as usize {
-                    username.truncate(size[0] as usize);
-                }
-            }
-
-            username.replace("'", "")
-        }
-        "INTEGER" => Faker.fake::<u16>().to_string(),
-        "BOOLEAN" => Faker.fake::<bool>().to_string(),
-        "DATE" => {
-            let year = thread_rng().gen_range(1900..2021);
-            let month = thread_rng().gen_range(1..13);
-            let day = thread_rng().gen_range(1..29);
-            NaiveDate::from_ymd_opt(year, month, day)
-                .unwrap()
-                .to_string()
-        }
-        "TIMESTAMP" => {
-            let year = thread_rng().gen_range(1900..2021);
-            let month = thread_rng().gen_range(1..13);
-            let day = thread_rng().gen_range(1..29);
-            let hour = thread_rng().gen_range(0..24);
-            let minute = thread_rng().gen_range(0..60);
-            let second = thread_rng().gen_range(0..60);
-            NaiveDateTime::new(
-                NaiveDate::from_ymd_opt(year, month, day).unwrap(),
-                chrono::NaiveTime::from_hms_opt(hour, minute, second).unwrap(),
-            )
-                .to_string()
-        }
-        "TIME" => {
-            let hour = thread_rng().gen_range(0..24);
-            let minute = thread_rng().gen_range(0..60);
-            let second = thread_rng().gen_range(0..60);
-            chrono::NaiveTime::from_hms_opt(hour, minute, second)
-                .unwrap()
-                .to_string()
-        }
-        "GROUP" => ["Member", "Mod"]
-            .choose(&mut thread_rng())
-            .unwrap()
-            .to_string(),
-        "EMAIL" => {
-            let domains = vec![
-                "@outlook.com",
-                "@gmail.com",
-                "@pitt.edu",
-                "@yahoo.com",
-                "@proton.mail",
-                "@pm.me",
-                "@paranoid.email",
-            ];
-            let username = match (
-                statement_data.get(&"name".to_string()),
-                statement_data.get(&"full name".to_string()),
-                statement_data.get(&"full_name".to_string()),
-            ) {
-                (Some(name), _, _) => name.replace(" ", ""),
-                (_, Some(full_name), _) => full_name.replace(" ", ""),
-                (_, _, Some(full_name_underscore)) => full_name_underscore.replace(" ", ""),
-                _ => {
-                    let name = Name(EN).fake::<String>();
-                    name.replace("'", "").to_string();
-                    name.replace(" ", "").to_string()
-                }
-            };
-            format!("{}{}", username, domains.choose(&mut thread_rng()).unwrap())
-        }
-        "STATE_US" => {
-            //Generate random state in US using faker
-            let state = StateName().fake::<String>();
-            state.replace("'", "")
-        }
-        "CITY_US" => {
-            let city = CityName().fake::<String>();
-            city.replace("'", "")
-        }
-        "CITY_SHORT" => {
-            let city_prefix = CityPrefix().fake::<String>();
-            city_prefix.replace("'", "")
-        }
-        "STREET_NAME_US" => {
-            let street_address = StreetName().fake::<String>();
-            street_address.replace("'", "")
-        }
-        "ZIP_US" => {
-            let zip = ZipCode().fake::<String>();
-            zip.replace("'", "")
-        }
-        "SSN" => {
-            // Generate random 9 digit number
-            let ssn = thread_rng().gen_range(100_000_000..1_000_000_000);
-            ssn.to_string()
-        }
-        "PHONE" => {
-            // Generate random phone number using faker
-            let phone_number = PhoneNumber().fake::<String>();
-            phone_number.replace("'", "")
-        }
-        "COUNTRY" => {
-            // Generate random country using faker
-            let country = CountryName().fake::<String>();
-            country.replace("'", "")
-        }
-        "COMPANYNAME" => {
-            // Generate random company name using faker
-            let company_name = CompanyName().fake::<String>();
-            company_name.replace("'", "")
-        }
-        "INDUSTRY" => {
-            // Generate random industry using faker
-            let industry = Industry().fake::<String>();
-            industry.replace("'", "")
-        }
-        "PRODUCT" => {
-            // Generate random product using faker
-            let company_name = CompanyName().fake::<String>();
-            let industry = Industry().fake::<String>();
-            let word = Word().fake::<String>();
-            format!("{} {} {}", company_name, industry, word)
-        }
-        "PROFESSION" => {
-            // Generate random profession using faker
-            let profession = Profession().fake::<String>();
-            profession.replace("'", "")
-        }
-        _ => {
-            panic!("Unknown Type In Data Generation! {}", attribute_type);
-        }
-    }
+    //let generator = generators.get(generator_key).unwrap();
+    //generator(optional_data_size, statement_data)
+    Generators::generate_from_name(attribute_type, optional_data_size, statement_data)
 }
 
 pub(crate) fn get_references(attribute_definition: &Vec<String>, index: usize) -> (String, String) {
@@ -675,8 +729,6 @@ pub(crate) fn get_referenced_attribute(
     None
 }
 
-
-
 pub fn merge_compound(attribute_definition: &mut Vec<String>) -> bool {
     /*
         * Merges compound attributes into one string
@@ -693,13 +745,13 @@ pub fn merge_compound(attribute_definition: &mut Vec<String>) -> bool {
         || attribute_definition.contains(&"COMPOUND".to_string())
     {
         /*
-            * Join All Elements After The Element Containing "COMPOUND" Into One String Element
-            * "COMPOUND" Can Either Be At attribute_checker[1] Or attribute_checker[2]
-            * Attribute Checker Should Then Have Either 3 Elements Or 4 Elements
-            * 3 Elements -> [attribute_name, COMPOUND, compound_attributes]
-            * 4 Elements -> [key_definition, attribute_name, COMPOUND, compound_attributes]
-            * 5 Elements -> [key_definition, attribute_name, COMPOUND, compound_attributes, foreign_table]
-        */
+         * Join All Elements After The Element Containing "COMPOUND" Into One String Element
+         * "COMPOUND" Can Either Be At attribute_checker[1] Or attribute_checker[2]
+         * Attribute Checker Should Then Have Either 3 Elements Or 4 Elements
+         * 3 Elements -> [attribute_name, COMPOUND, compound_attributes]
+         * 4 Elements -> [key_definition, attribute_name, COMPOUND, compound_attributes]
+         * 5 Elements -> [key_definition, attribute_name, COMPOUND, compound_attributes, foreign_table]
+         */
         let mut isReference: bool = false;
         let mut foreign_table: String = String::new();
         let index_of_compound = attribute_definition // Get index of element of string "compound" or "COMPOUND"
@@ -709,11 +761,11 @@ pub fn merge_compound(attribute_definition: &mut Vec<String>) -> bool {
 
         let index_of_end_compound = if attribute_definition[0].contains("FK") {
             /*
-                * Compound Attribute Is A Foreign Key
-                * Get Index Of Element Containing "))" (End Of Compound Attribute)
-                * This Is Because The Compound Attribute Will Contain The Foreign Table
-                * Keeps Foreign Table As Its Own Element
-            */
+             * Compound Attribute Is A Foreign Key
+             * Get Index Of Element Containing "))" (End Of Compound Attribute)
+             * This Is Because The Compound Attribute Will Contain The Foreign Table
+             * Keeps Foreign Table As Its Own Element
+             */
             isReference = true;
             attribute_definition // Get index of element of string ")"
                 .iter()
@@ -721,18 +773,19 @@ pub fn merge_compound(attribute_definition: &mut Vec<String>) -> bool {
                 .unwrap() // Get index of "))"
         } else {
             /*
-                * Not A Foreign Table
-                * Proceed As Before
-            */
+             * Not A Foreign Table
+             * Proceed As Before
+             */
             attribute_definition.len()
         };
 
-        let _compound_attribute = attribute_definition[index_of_compound + 1..index_of_end_compound].join(" "); // Merge compound attr into one string
+        let _compound_attribute =
+            attribute_definition[index_of_compound + 1..index_of_end_compound].join(" "); // Merge compound attr into one string
 
         /*
-            * Remove All Elements After The Element Containing "COMPOUND"
-            * Then Push The Compound Attribute To The Attribute Checker
-        */
+         * Remove All Elements After The Element Containing "COMPOUND"
+         * Then Push The Compound Attribute To The Attribute Checker
+         */
         attribute_definition.truncate(index_of_compound + 1); // Remove excess elements
         attribute_definition.push(_compound_attribute); // Push new compound attribute to end
         if isReference {
@@ -776,11 +829,11 @@ pub(crate) fn set_variable_size(attr_type: &str) -> Option<Vec<u16>> {
         }
         s if (s.contains("PASSWORD") && !(*s).eq("PASSWORD"))
             || (s.contains("USERNAME") && !(*s).eq("USERNAME")) =>
-            {
-                let variable_size_str = &attr_type[8..];
-                let variable_size_str = &variable_size_str[1..variable_size_str.len() - 1];
-                Some(vec![variable_size_str.parse().unwrap(), 0])
-            }
+        {
+            let variable_size_str = &attr_type[8..];
+            let variable_size_str = &variable_size_str[1..variable_size_str.len() - 1];
+            Some(vec![variable_size_str.parse().unwrap(), 0])
+        }
         s if s.contains("MONEY") && !(*s).eq("MONEY") => {
             let variable_size_str = &attr_type[5..];
             let variable_size_str = &variable_size_str[1..variable_size_str.len() - 1];
@@ -799,4 +852,3 @@ pub(crate) fn set_variable_size(attr_type: &str) -> Option<Vec<u16>> {
     };
     some_returned_value
 }
-
